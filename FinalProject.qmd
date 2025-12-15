@@ -1,0 +1,487 @@
+---
+title: "MA615FinalProject"
+subtitle: "Living on Long Island, Working in the City? Jobs, Commuting, and Family Life on Long Island"
+author: "Zhuolin Liu"
+date: "`r Sys.Date()`"
+format: pdf
+editor: visual
+---
+
+## 1. Introduction
+
+Long Island has two large suburban counties - Nassau County and Suffolk County - which are closely linked to the New York City. Although many residents live and raise families on Long Island, their jobs, commuting patterns, and economic opportunities are influenced by both the local employment market and the regional labor market. This project aims to study the lifestyles and work patterns of Long Island residents. Its research scope covers Nassau County and Suffolk County. By analyzing aspects such as population structure, family composition, employment in various industries, commuting behavior, and income differences at the community level, it aims to gain a deeper understanding of the living conditions of local residents.
+
+```{r}
+library(tidycensus)
+library(tidyverse)
+library(dplyr)
+library(stringr)
+library(scales)
+```
+
+```{r}
+year <- 2023
+state_li <- "NY"
+li_counties <- c("Nassau County, New York", "Suffolk County, New York")
+```
+
+## 2. Demographic Structure
+
+This part of the chart compares the age composition of the population in Nassau County and Suffolk County.
+
+```{r}
+age_li <- get_acs(
+  geography = "county",
+  state     = "NY",
+  year      = year,
+  survey    = "acs5",
+  table     = "S0101",
+  dataset   = "acs5/subject",
+  output    = "wide"
+) %>%
+  filter(NAME %in% li_counties) %>%
+  transmute(
+    county       = str_remove(NAME, ", New York"),
+    pct_under18  = S0101_C02_022E, 
+    pct_65plus   = S0101_C02_030E, 
+    pct_18to64   = 100 - pct_under18 - pct_65plus
+  )
+
+age_li
+
+
+```
+
+```{r}
+age_li %>%
+  tidyr::pivot_longer(
+    cols = starts_with("pct_"),
+    names_to = "age_group",
+    values_to = "percent"
+  ) %>%
+  dplyr::mutate(
+    age_group = factor(age_group,
+                       levels = c("pct_under18", "pct_18to64", "pct_65plus"),
+                       labels = c("Under 18", "18–64", "65+"))
+  ) %>%
+  ggplot(aes(x = county, y = percent, fill = age_group)) +
+  geom_col(position = "stack") +
+  labs(
+    title = "Age structure of Long Island counties (ACS 2019–2023)",
+    x = "County",
+    y = "Percent",
+    fill = "Age group"
+  )
+
+```
+
+In both counties,the majority of residents are in the working age group (18 to 64 years old), accounting for approximately 60% of the total population. The proportions of children under 18 and adults over 65 are roughly the same in both counties, but the proportion of working-age residents in Suffolk County is slightly higher. Overall, the age distribution indicates that the residents of these two counties are mainly suburban residents in the working age group, which has a significant impact on employment demands and commuting patterns.
+
+## 3. Family and Household Characteristics
+
+Household composition differs modestly between Nassau and Suffolk Counties.
+
+```{r}
+family_li_raw <- get_acs(
+  geography = "county",
+  state     = "NY",
+  year      = year,
+  survey    = "acs5",
+  table     = "S1101",
+  dataset   = "acs5/subject",
+  output    = "wide"
+) %>%
+  dplyr::filter(NAME %in% li_counties)
+
+family_li <- family_li_raw %>%
+  dplyr::transmute(
+    county          = stringr::str_remove(NAME, ", New York"),
+    hh_total        = S1101_C01_001E,
+    fam_total       = S1101_C01_003E, 
+    pct_hh_children_u18 = S1101_C01_010E,
+    pct_family_hh       = 100 * fam_total / hh_total,
+    pct_nonfamily_hh    = 100 - pct_family_hh
+  )
+
+family_li
+```
+
+```{r}
+family_long <- family_li %>%
+  dplyr::select(county, pct_family_hh, pct_nonfamily_hh) %>%
+  tidyr::pivot_longer(
+    cols = starts_with("pct_"),
+    names_to = "hh_type",
+    values_to = "percent"
+  ) %>%
+  dplyr::mutate(
+    hh_type = dplyr::recode(
+      hh_type,
+      pct_family_hh    = "Family households",
+      pct_nonfamily_hh = "Nonfamily households"
+    )
+  )
+
+ggplot(family_long, aes(x = county, y = percent, fill = hh_type)) +
+  geom_col(position = "fill") +
+  scale_y_continuous(labels = scales::percent_format(scale = 1)) +
+  labs(
+    title = "Family vs nonfamily households on Long Island",
+    x = "County",
+    y = "Share of households",
+    fill = "Household type"
+  )
+```
+
+```{r}
+ggplot(family_li, aes(x = county, y = pct_hh_children_u18)) +
+  geom_col() +
+  labs(
+    title = "Households with people under 18 years",
+    x = "County",
+    y = "Percent of households"
+  )
+```
+
+In Nassau County, the proportion of households among the total number of families is relatively higher. While in Suffolk County, the proportion of non-household families is slightly higher.In both counties, approximately one-third of the families have children under the age of 18. These phenomena indicate that Long Island still places great emphasis on families, especially in Nassau County. This further consolidates its status as a residential area for working families.
+
+## 4. Employment and Industry Structure
+
+```{r}
+vars_s2405 <- load_variables(
+  year    = year,
+  dataset = "acs5/subject",
+  cache   = TRUE 
+) %>%
+  dplyr::filter(stringr::str_starts(name, "S2405"))
+industry_patterns <- tibble::tibble(
+  industry = c(
+    "Ag & mining",
+    "Construction",
+    "Manufacturing",
+    "Retail trade",
+    "Finance & real estate",
+    "Prof/management services",
+    "Education & health"
+  ),
+  pattern = c(
+    "Agriculture, forestry, fishing and hunting, and mining",
+    "Construction",
+    "Manufacturing",
+    "Retail trade",
+    "Finance and insurance, and real estate and rental and leasing",
+    "Professional, scientific, and management, and administrative and waste management services",
+    "Educational services, and health care and social assistance"
+  )
+)
+
+industry_codes <- industry_patterns %>%
+  dplyr::rowwise() %>%
+  dplyr::mutate(
+    var  = vars_s2405$name[which(stringr::str_detect(vars_s2405$label, pattern))[1]],
+    varE = paste0(var, "E") 
+  ) %>%
+  dplyr::ungroup()
+
+industry_codes
+```
+
+```{r}
+ind_li_raw <- get_acs(
+  geography = "county",
+  state     = "NY",
+  year      = year,
+  survey    = "acs5",
+  table     = "S2405",
+  dataset   = "acs5/subject",
+  output    = "wide"
+) %>%
+  dplyr::filter(NAME %in% li_counties)
+```
+
+
+
+```{r}
+total_emp <- ind_li_raw %>%
+  dplyr::transmute(
+    NAME,
+    total_emp = S2405_C01_001E
+  )
+
+ind_li_long <- ind_li_raw %>%
+  dplyr::select(NAME, dplyr::all_of(industry_codes$varE)) %>%
+  tidyr::pivot_longer(
+    cols      = -NAME,
+    names_to  = "varE",
+    values_to = "n_emp"
+  ) %>%
+  dplyr::left_join(industry_codes, by = "varE") %>%
+  dplyr::left_join(total_emp,      by = "NAME") %>%
+  dplyr::mutate(
+    county  = stringr::str_remove(NAME, ", New York"),
+    percent = 100 * n_emp / total_emp
+  ) %>%
+  dplyr::select(county, industry, percent)
+
+ind_li_long
+```
+
+```{r}
+ind_li_overall <- ind_li_long %>%
+  dplyr::group_by(industry) %>%
+  dplyr::summarise(
+    percent_li = mean(percent, na.rm = TRUE),
+    .groups = "drop"
+  )
+ind_li_overall
+```
+
+```{r}
+ggplot(ind_li_long, aes(x = industry, y = percent, fill = county)) +
+  geom_col(position = "dodge") +
+  coord_flip() +
+  labs(
+    title = "Industry structure of employment, Nassau vs Suffolk (ACS 2019–2023)",
+    x = "Industry",
+    y = "Percent of employed civilian population",
+    fill = "County"
+  )
+```
+
+```{r}
+ggplot(ind_li_overall,
+       aes(x = reorder(industry, percent_li), y = percent_li)) +
+  geom_col() +
+  coord_flip() +
+  labs(
+    title = "Dominant industries on Long Island (average of Nassau & Suffolk)",
+    x = "Industry",
+    y = "Percent of employed population"
+  )
+```
+
+Employment in Long Island is mainly concentrated in service-oriented industries. In Nassau County and Suffolk County, education and medical services are the largest employment sectors, followed by professional and management services, retail, finance and real estate industries. Although the roles of manufacturing and construction are smaller, they are still of great significance, especially in Suffolk County. The industrial structures of these two counties are similar, indicating that the labor market conditions faced by residents are roughly the same, although the commuting methods may differ.
+
+## 5. Commuting Patterns
+
+The commuting patterns highlight the close connection between Long Island and the surrounding labor markets.
+
+```{r}
+year <- 2023
+
+vars_s0801_pct <- load_variables(
+  year    = year,
+  dataset = "acs5/subject",
+  cache   = TRUE
+) %>%
+  filter(str_starts(name, "S0801_C02_")) 
+vars_s0801_pct %>% 
+  filter(str_detect(label, "PLACE OF WORK")) %>%
+  select(name, label) %>% 
+  print(n = 20)
+```
+
+```{r}
+vars_s0801_total <- load_variables(
+  year    = year,
+  dataset = "acs5/subject",
+  cache   = TRUE
+) %>%
+  filter(str_starts(name, "S0801_C01_"))
+commute_codes <- tibble(
+  metric = c(
+    "work_in_county",
+    "work_outside_county",
+    "work_outside_state",
+    "work_at_home",
+    "car_alone",
+    "public_transit"
+  ),
+  var = c(
+    "S0801_C01_001",
+    "S0801_C01_002", 
+    "S0801_C01_003",
+    "S0801_C01_013",
+    "S0801_C01_031",
+    "S0801_C01_041" 
+  )
+) %>%
+  mutate(varE = paste0(var, "E"))
+
+commute_codes_labeled <- commute_codes %>%
+  left_join(vars_s0801_total, by = c("var" = "name")) %>%
+  select(metric, var, label)
+
+commute_codes_labeled
+```
+
+```{r}
+year <- 2023
+state_li <- "NY"
+li_counties <- c("Nassau County, New York", "Suffolk County, New York")
+
+li_raw <- get_acs(
+  geography = "county",
+  state     = state_li,
+  year      = year,
+  survey    = "acs5",
+  table     = "S0801",
+  dataset   = "acs5/subject",
+  output    = "wide"
+) |>
+  dplyr::filter(NAME %in% li_counties)
+
+comm_clean <- li_raw |>
+  dplyr::transmute(
+    county = stringr::str_remove(NAME, ", New York"),
+    workers_total = S0801_C01_001E, 
+  Drive_alone   = S0801_C02_002E / 100, 
+  public_transit = S0801_C02_009E / 100, 
+  work_at_home   = S0801_C02_013E / 100,
+
+    work_in_county  = S0801_C02_015E / 100,
+   work_out_county    = S0801_C02_016E / 100,
+    work_out_state  = S0801_C02_017E / 100
+  ) |>
+  dplyr::mutate(
+    work_away_from_home = work_in_county +
+                           work_out_county +
+                           work_out_state,
+
+    pct_work_in_county  = work_in_county  / work_away_from_home,
+    pct_work_out_cty    = work_out_county    / work_away_from_home,
+    pct_work_out_state  = work_out_state  / work_away_from_home
+  )
+
+comm_clean
+```
+
+```{r}
+place_long <- comm_clean |>
+  dplyr::select(
+    county,
+    pct_work_in_county,
+    pct_work_out_cty,
+    pct_work_out_state
+  ) |>
+  tidyr::pivot_longer(
+    cols      = dplyr::starts_with("pct_work_"),
+    names_to  = "place",
+    values_to = "share"
+  ) |>
+  dplyr::mutate(
+    place = dplyr::recode(
+      place,
+      pct_work_in_county = "Worked in county of residence",
+      pct_work_out_cty   = "Worked outside county\n(same state)",
+      pct_work_out_state = "Worked outside state"
+    )
+  )
+
+ggplot(place_long,
+       aes(x = place, y = share, fill = place)) +
+  geom_col(position = "dodge") +
+  facet_wrap(~ county) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  labs(
+    title = "Place of work for Long Island residents (ACS 2019–2023)",
+    x = "Place of work",
+    y = "Share of workers",
+    fill = "Place of work"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 20, hjust = 1))
+```
+
+```{r}
+comm_mode_long <- comm_clean |>
+  dplyr::select(
+    county,
+    Drive_alone,
+    public_transit,
+    work_at_home
+  ) |>
+  tidyr::pivot_longer(
+    cols      = c(Drive_alone, public_transit, work_at_home),
+    names_to  = "mode",
+    values_to = "percent"
+  ) |>
+  dplyr::mutate(
+    mode = dplyr::recode(
+      mode,
+      Drive_alone    = "Drive alone",
+      public_transit = "Public transit",
+      work_at_home   = "Work at home"
+    )
+  )
+
+ggplot(comm_mode_long,
+       aes(x = county, y = percent, fill = mode)) +
+  geom_col(position = "stack") +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  labs(
+    title = "Commuting mode of Long Island workers (ACS 2019–2023)",
+    x     = "County",
+    y     = "Share of workers",
+    fill  = "Mode of commuting"
+  ) +
+  theme_minimal()
+```
+
+A significant portion of the residents work outside their county of residence, and a considerable number of people leave their state to work in other places, reflecting the close ties between them and the employment centers in New York City and other regions. In both counties, driving alone remains the main commuting method, while the proportion of public transportation is much smaller. A considerable number of employees choose to work from home, indicating that remote work is becoming increasingly important in the suburban areas.
+
+## 6. Income Variation Across Neighborhoods
+
+In Nassau County and Suffolk County, the income levels of various communities vary significantly.
+
+```{r}
+state_li <- "NY"
+li_counties       <- c("Nassau County, New York", "Suffolk County, New York")
+li_counties_short <- c("Nassau", "Suffolk")
+income_var <- "B19013A_001"
+```
+
+```{r}
+income_li <- get_acs(geography = "tract",
+  state     = state_li,
+  county    = li_counties_short,
+  year      = year,
+  survey    = "acs5",
+  variables = income_var,
+  geometry  = TRUE
+) %>%
+  mutate(
+    median_hh_income = estimate,
+    county = str_extract(NAME, "Nassau County|Suffolk County")
+  )
+
+income_li
+```
+
+```{r}
+ggplot(income_li) +
+  geom_sf(aes(fill = median_hh_income), color = NA, size = 0) +
+  scale_fill_viridis_c(
+    option = "C",
+    trans  = "log",
+    labels = scales::dollar_format()
+  ) +
+  labs(
+    title   = "Median household income by census tract\nLong Island (ACS 2019–2023)",
+    fill    = "Median household income",
+    caption = "Source: ACS 2019–2023, table B19013"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    panel.grid  = element_blank(),
+    axis.text   = element_blank(),
+    axis.title  = element_blank(),
+    axis.ticks  = element_blank()
+  )
+```
+
+This income distribution map clearly shows the spatial distribution pattern. High-income communities are concentrated in certain areas, while low-income communities are distributed in other places. This visualization does not focus on specific administrative boundaries but highlights the broader regional inequality within Long Island. These patterns highlight the economic diversity that exists within what is often regarded as a single type of suburban county.
+
+## 7. Conclusion
+
+This analysis indicates that Nassau County and Suffolk County share many similarities in terms of population structure and employment composition, but differ in terms of family characteristics and commuting behaviors. Both counties serve as residences for a large number of people of working age and have a close connection with the local labor market. Overall, these results suggest that the lives of residents in the Long Island region are shaped by the interaction between suburban family life and urban employment opportunities. Understand these patterns are of vital importance for transportation planning, housing policies, and regional economic development.
