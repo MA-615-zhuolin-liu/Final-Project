@@ -3,10 +3,8 @@ library(tidyverse)
 library(scales)
 library(leaflet)
 library(sf)
-library(tidycensus)
 library(stringr)
 
-options(tigris_use_cache = TRUE)
 
 cache_file <- "data_li.rds"
 

@@ -1,0 +1,26 @@
+The command failed with output:
+* installing *source* package ‘terra’ ...
+** this is package ‘terra’ version ‘1.8-80’
+** package ‘terra’ successfully unpacked and MD5 sums checked
+** using staged installation
+configure: CC: gcc
+configure: CXX: g++ -std=gnu++17
+checking for gdal-config... no
+configure: error: gdal-config not found or not executable. 
+*** Installing this package from source requires the prior
+*** installation of external software, see for details
+*** https://rspatial.github.io/terra/
+ERROR: configuration failed for package ‘terra’
+* removing ‘/opt/rstudio-connect/mnt/app/packrat/lib/x86_64-pc-linux-gnu/4.5.1/terra’
+
+Unable to fully restore the R packages associated with this deployment.
+Please review the preceding messages to determine which package
+encountered installation difficulty and the cause of the failure.
+
+An error occurred while building your content.
+This link offers advice for this kind of error:
+    https://docs.posit.co/connect/user/troubleshooting/#r-missing-system-library
+Stopped session pings to http://127.0.0.1:35011
+Build error: An error occurred while building your content. (Error code: r-missing-system-library)
+── Deployment complete ─────────────────────────────────────────────────────────
+✖ Deployment failed with error: An error occurred while building your content. (Error code: r-missing-system-library)
