@@ -4,6 +4,34 @@ library(scales)
 library(leaflet)
 library(sf)
 library(stringr)
+library(dplyr)
+library(tibble)
+
+age_long <- tibble(
+  county = rep(c("Nassau County", "Suffolk County"), each = 3),
+  age_group = rep(c("Under 18", "18–64", "65+"), times = 2),
+  percent = c(21, 61, 18, 22, 60, 18)
+)
+
+overview_tbl <- tibble(
+  county = c("Nassau County", "Suffolk County"),
+  hh_total = c(520000, 560000),
+  pct_family_hh = c(70.5, 69.8),
+  pct_nonfamily_hh = c(29.5, 30.2),
+  pct_hh_children_u18 = c(31.0, 31.2),
+  `Under 18` = c(21.0, 22.0),
+  `18–64` = c(61.0, 60.0),
+  `65+` = c(18.0, 18.0)
+)
+
+bbox <- sf::st_bbox(c(xmin = -73.75, ymin = 40.60, xmax = -72.70, ymax = 41.10), crs = sf::st_crs(4326))
+grid <- sf::st_make_grid(sf::st_as_sfc(bbox), n = c(18, 6)) |> sf::st_sf()
+set.seed(615)
+grid$median_hh_income <- round(runif(nrow(grid), 80000, 160000), 0)
+centx <- sf::st_coordinates(sf::st_centroid(grid))[, 1]
+grid$county <- ifelse(centx < median(centx), "Nassau County", "Suffolk County")
+income_sf <- grid
+
 
 
 cache_file <- "data_li.rds"
@@ -82,25 +110,7 @@ year <- 2023
 state_li <- "NY"
 li_counties_short <- c("Nassau", "Suffolk")
 
-income_sf <- get_acs(
-  geography = "tract",
-  state     = state_li,
-  county    = li_counties_short,
-  year      = year,
-  survey    = "acs5",
-  variables = "B19013_001",
-  geometry  = TRUE
-) %>%
-  mutate(
-    median_hh_income = estimate,
-    county = str_extract(NAME, "Nassau County|Suffolk County")
-  ) %>%
-  st_transform(4326)
-overview_tbl <- fam$family_wide %>%
-  left_join(
-    age_long %>% pivot_wider(names_from = age_group, values_from = percent),
-    by = "county"
-  )
+income_sf <- readRDS("income_sf.rds")
 
 
 #  UI 
